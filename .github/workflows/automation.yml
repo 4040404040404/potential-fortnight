@@ -1,0 +1,59 @@
+name: Web Automation (Every 5 Minutes)
+
+on:
+  schedule:
+    # Runs every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  web-automation:
+    name: Run Web Automation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    # Prevent concurrent runs to avoid conflicts
+    concurrency:
+      group: web-automation
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Automation Script
+        run: node automation.js
+        env:
+          TARGET_URL: ${{ secrets.TARGET_URL || 'https://zealous-river-220556.puter.site/' }}
+
+      - name: Upload automation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automation-results-${{ github.run_id }}
+          path: automation-results/
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `❌ Automation Failed - ${new Date().toISOString()}`,
+              body: `The scheduled web automation failed.\n\n**Run:** ${context.runId}\n**Workflow:** ${context.workflow}\n**Time:** ${new Date().toISOString()}\n\nCheck the workflow logs for details.`
+            })
